@@ -1,18 +1,18 @@
-name: Build Xiaomi SDM845 Kernels with OriginSU
+name: Build Xiaomi SDM845 Kernels with BakaSU or OriginSU
 
 # Based on Coconutat's SDM845 4.9 kernel (android_kernel_xiaomi_sdm845_lineageos_Exp),
 # which already ships SuSFS v2.3.0 and the SuSFS inline hooks (updated here to v2.4.0). The branch is picked
 # automatically: the most recent LineageOS version whose branch contains SuSFS
 # (currently lineage-22.2-BakaSU).
-# BakaSU (fetched by sync_ksu.sh, not part of the tree) is replaced by OriginSU.
+# BakaSU is the default root solution; OriginSU remains available as an alternative.
 # Build and packaging follow Coconutat's build_kernel.sh / sync_anykernel3.sh exactly;
-# a manual "bakasu" run builds the untouched Coconutat kernel as a control.
+# both root solutions receive the shared SuSFS and kernel-feature improvements below.
 #
 # OriginSU is discontinued: the project became KazeSU (https://github.com/KazeSU/KazeSU).
 # This builder is frozen on the last OriginSU release, v4.3.0, kept in the KazeSU repository
 # (tag v4.3.0, GitHub release "legacy-v4.3.0"). KazeSU v1.x does not build on this 4.9 tree (its
 # SELinux code needs the 5.10+ struct selinux_state; 4.9 has no struct selinux_state at all), so
-# OriginSU v4.3.0 stays the recommended root. 4.9 is the newest kernel LineageOS ships for SDM845.
+# OriginSU v4.3.0 remains available as an alternative. 4.9 is the newest kernel LineageOS ships for SDM845.
 # Manual runs only.
 
 on:
@@ -27,10 +27,10 @@ on:
         required: false
         default: ""
       root:
-        description: "Root solution (bakasu = control build identical to Coconutat's, never published)"
+        description: "Root solution (OriginSU builds are uploaded as Actions artifacts)"
         type: choice
-        options: [originsu, bakasu]
-        default: originsu
+        options: [bakasu, originsu]
+        default: bakasu
       susfs:
         description: "SuSFS: v2.4.0 (JackA1ltman's 4.9 port, pinned) or tree (the tree's v2.3.0)"
         type: choice
@@ -41,7 +41,7 @@ on:
         type: boolean
         default: false
       publish:
-        description: "Publish a GitHub Release"
+        description: "Publish or replace the BakaSU GitHub Release (OriginSU builds remain Actions artifacts)"
         type: boolean
         default: true
 
@@ -85,8 +85,9 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: OriginSU release (with its manager APK)
+      - name: Select OriginSU version
         id: ver
+        if: inputs.root != 'bakasu'
         run: |
           TAG="${{ inputs.originsu_ref }}"
           TAG="${TAG:-v4.3.0}"
@@ -97,15 +98,6 @@ jobs:
             *) echo "::error::$TAG is not an OriginSU tag (expected v4.x, e.g. v4.3.0)"; exit 1 ;;
           esac
 
-          # Only build when the matching manager is published in the release
-          APKS=$(gh release view "$TAG" --repo KazeSU/KazeSU --json assets -q '.assets[].name' 2>/dev/null | grep -E '\.apk$' || true)
-          if [ -z "$APKS" ]; then
-            echo "::warning::OriginSU release $TAG does not contain the manager APK (yet) -> no build"
-            echo "manager=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Manager available:"; echo "$APKS" | sed 's/^/  /'
-            echo "manager=true" >> "$GITHUB_OUTPUT"
-          fi
           echo "OriginSU version: $TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
@@ -123,8 +115,7 @@ jobs:
             echo "Selected kernel branch: $1 (LineageOS $V)"
           }
 
-          # Same file/hook list as the "Install the root solution" step: a branch is only
-          # usable if it has SuSFS, the shared configs AND every inline hook OriginSU needs.
+          # A branch is only usable if it has SuSFS, the shared configs and all required inline hooks.
           # Read through the authenticated API (raw.githubusercontent.com can fail/rate-limit).
           getf() { gh api -H "Accept: application/vnd.github.raw" "repos/$R/contents/$1?ref=$2" 2>/dev/null; }
           usable() {
@@ -178,8 +169,10 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
           BRANCH: ${{ steps.branch.outputs.branch }}
         run: |
-          if [ "${{ steps.ver.outputs.manager }}" != "true" ]; then
-            echo "build=false" >> "$GITHUB_OUTPUT"; exit 0
+          if [ "${{ inputs.root }}" = "bakasu" ]; then
+            echo "Manual run (BakaSU on $BRANCH) -> build"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           echo "Manual run (OriginSU $TAG on $BRANCH) -> build"
           echo "build=true" >> "$GITHUB_OUTPUT"
@@ -195,17 +188,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # All Xiaomi SDM845 devices with a per-device config in the Coconutat tree.
-        # beryllium=POCO F1, dipper=Mi 8, equuleus=Mi 8 Pro, polaris=Mi MIX 2S,
-        # perseus=Mi MIX 3, ursa=Mi 8 Explorer Edition.
-        device: [beryllium, dipper, equuleus, polaris, perseus, ursa]
+        # Build only dipper (Xiaomi Mi 8).
+        device: [dipper]
     env:
       DEVICE: ${{ matrix.device }}
       ORIGINSU_TAG: ${{ needs.check.outputs.tag }}
       KERNEL_BRANCH: ${{ needs.check.outputs.branch }}
       LINEAGE_VERSION: ${{ needs.check.outputs.lineage }}
       ANDROID_VERSION: ${{ needs.check.outputs.android }}
-      ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.root || 'originsu' }}
+      ROOT: ${{ github.event_name == 'workflow_dispatch' && inputs.root || 'bakasu' }}
       KPM: ${{ github.event_name == 'workflow_dispatch' && inputs.kpm || 'false' }}
       SUSFS: ${{ github.event_name == 'workflow_dispatch' && inputs.susfs || 'v2.4.0' }}
       # Environment exported by build_kernel.sh
@@ -254,23 +245,21 @@ jobs:
           rm -rf KernelSU drivers/kernelsu
 
           if [ "$ROOT" = "bakasu" ]; then
-            # Control build: exactly what Coconutat ships (sync_ksu.sh option E), no change at all
+            # Install BakaSU as the root solution; shared kernel/SuSFS changes follow below.
             curl -fLSs https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh | bash
             [ -e drivers/kernelsu/Kconfig ] || { echo "::error::drivers/kernelsu missing after setup.sh"; exit 1; }
-            exit 0
-          fi
+          else
+            # OriginSU (clone into ./KernelSU + drivers/kernelsu symlink)
+            # samakshkambxj/OriginSU now redirects to KazeSU/KazeSU, whose main branch is KazeSU:
+            # take setup.sh from the OriginSU tag itself and clone the KazeSU URL directly.
+            curl -fLSs --retry 3 "https://raw.githubusercontent.com/KazeSU/KazeSU/$ORIGINSU_TAG/kernel/setup.sh" \
+              | sed 's|^REPO_URL=.*|REPO_URL="https://github.com/KazeSU/KazeSU"|' \
+              | bash -s "$ORIGINSU_TAG"
+            [ -e drivers/kernelsu/Kconfig ] || { echo "::error::drivers/kernelsu missing after setup.sh"; exit 1; }
+            [ "$(git -C KernelSU describe --tags --exact-match 2>/dev/null)" = "$ORIGINSU_TAG" ] \
+              || { echo "::error::OriginSU is not at $ORIGINSU_TAG"; git -C KernelSU log -1 --oneline; exit 1; }
 
-          # OriginSU (clone into ./KernelSU + drivers/kernelsu symlink)
-          #   samakshkambxj/OriginSU now redirects to KazeSU/KazeSU, whose main branch is KazeSU:
-          #   take setup.sh from the OriginSU tag itself and clone the KazeSU URL directly.
-          curl -fLSs --retry 3 "https://raw.githubusercontent.com/KazeSU/KazeSU/$ORIGINSU_TAG/kernel/setup.sh" \
-            | sed 's|^REPO_URL=.*|REPO_URL="https://github.com/KazeSU/KazeSU"|' \
-            | bash -s "$ORIGINSU_TAG"
-          [ -e drivers/kernelsu/Kconfig ] || { echo "::error::drivers/kernelsu missing after setup.sh"; exit 1; }
-          [ "$(git -C KernelSU describe --tags --exact-match 2>/dev/null)" = "$ORIGINSU_TAG" ] \
-            || { echo "::error::OriginSU is not at $ORIGINSU_TAG"; git -C KernelSU log -1 --oneline; exit 1; }
-
-          # --- 4.9 compatibility fixes, applied to OriginSU's sources only (kernel tree untouched) ---
+            # --- 4.9 compatibility fixes, applied to OriginSU's sources only ---
 
           # 1b) Non-GKI fix (older OriginSU versions): include preinit.h unconditionally
           F=KernelSU/kernel/runtime/ksud_integration.c
@@ -365,8 +354,9 @@ jobs:
           } > "$COMPAT"
           echo "ccflags-y += -include $COMPAT" >> KernelSU/kernel/Kbuild
           echo "--- $COMPAT ---"; cat "$COMPAT"
+          fi
 
-          # The SuSFS inline hooks must be present (OriginSU also checks them at build time)
+          # The inline hooks are required for SuSFS with either root solution.
           for p in "kernel/sys.c:ksu_handle_setresuid" "fs/exec.c:ksu_handle_execveat" \
                    "fs/open.c:ksu_handle_faccessat" "fs/read_write.c:ksu_handle_sys_read" \
                    "fs/stat.c:ksu_handle_stat" "kernel/reboot.c:ksu_handle_sys_reboot" \
@@ -522,7 +512,7 @@ jobs:
           # filter (CMD_SUSFS_SET_SUS_PATH_UID_FILTER = apps allowed to see the hidden paths),
           # and re-resolve those apps' uids whenever packages.list is rewritten (install/update),
           # as the uid of a reinstalled app changes.
-          if grep -q 'CMD_SUSFS_SET_SUS_PATH_UID_FILTER' include/linux/susfs_def.h; then
+          if [ "$ROOT" = "originsu" ] && grep -q 'CMD_SUSFS_SET_SUS_PATH_UID_FILTER' include/linux/susfs_def.h; then
             python3 - <<'PY'
           import re, sys
           f = "KernelSU/kernel/supercall/dispatch.c"
@@ -552,7 +542,9 @@ jobs:
               print("-> OriginSU: sus_path uid filter refreshed on packages.list updates")
           PY
           fi
-          sed -i 's/\$(KSU_COMMIT_SHA)-dirty/$(KSU_COMMIT_SHA)/' KernelSU/kernel/Kbuild 2>/dev/null || true
+          if [ "$ROOT" = "originsu" ]; then
+            sed -i 's/\$(KSU_COMMIT_SHA)-dirty/$(KSU_COMMIT_SHA)/' KernelSU/kernel/Kbuild 2>/dev/null || true
+          fi
 
       - name: Generate kernel config
         working-directory: ${{ env.KERNEL_DIR }}
@@ -580,15 +572,10 @@ jobs:
         working-directory: ${{ env.KERNEL_DIR }}
         # Same three features as riarumoda/perf_neon-builder scripts/goodies/*, adapted to this
         # builder (config lives in out/.config, enabled via scripts/config + olddefconfig).
-        # Skipped for the "bakasu" control build, which must stay identical to Coconutat's.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MK: make ARCH=arm64 O=out CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1
         run: |
-          if [ "$ROOT" = "bakasu" ]; then
-            echo "Control (bakasu) build -> extra features skipped"; exit 0
-          fi
-
           ########## 1) Baseband Guard (vc-teahouse) ##########
           echo "== Baseband Guard =="
           BBG_SETUP_URI="https://raw.githubusercontent.com/vc-teahouse/Baseband-guard/main/setup.sh"
@@ -621,13 +608,13 @@ jobs:
           curl -LSs --fail --retry 3 -H "Authorization: Bearer $GITHUB_TOKEN" "$NOMOUNT_SETUP_URI" | bash -s "$NOMOUNT_SETUP_BRANCH" \
             || { echo "::error::NoMount setup failed"; exit 1; }
           ./scripts/config --file out/.config -e NOMOUNT
-          # OriginSU v4.3.0 drives NoMount itself (OriginMount screen -> "nomount" mode): ksud
-          # probes the built-in driver first and needs driver API >= 22 (NoMount v2.2.0+). v2.3.0
-          # reports API 23 with the same wire structures. Do not install the NoMount module zip on top.
-          NM_API="$(sed -n 's/^#define NOMOUNT_BASE_VERSION "\([0-9]*\)".*/\1/p' fs/nomount/nomount.h)"
-          echo "-- NoMount driver API: ${NM_API:-unknown}"
-          [ -n "$NM_API" ] && [ "$NM_API" -ge 22 ] \
-            || { echo "::error::NoMount API ${NM_API:-unknown} < 22: OriginSU v4.3.0 would refuse the driver"; exit 1; }
+          if [ "$ROOT" = "originsu" ]; then
+            # OriginSU v4.3.0 requires NoMount driver API >= 22; v2.3.0 reports API 23.
+            NM_API="$(sed -n 's/^#define NOMOUNT_BASE_VERSION "\([0-9]*\)".*/\1/p' fs/nomount/nomount.h)"
+            echo "-- NoMount driver API: ${NM_API:-unknown}"
+            [ -n "$NM_API" ] && [ "$NM_API" -ge 22 ] \
+              || { echo "::error::NoMount API ${NM_API:-unknown} < 22: OriginSU v4.3.0 would refuse the driver"; exit 1; }
+          fi
 
           ########## 3) Droidspaces (ravindu644) ##########
           echo "== Droidspaces =="
@@ -979,7 +966,7 @@ jobs:
           esac
           sed -i -E '/^device\.name[0-9]+=/d' "$AK"
           sed -i -E "s/^do\.devicecheck=.*/&\ndevice.name1=${DEVICE}/" "$AK"
-          if [ "$ROOT" = "bakasu" ]; then NAME="BakaSU (control build)"; else NAME="OriginSU ${ORIGINSU_TAG}"; fi
+          if [ "$ROOT" = "bakasu" ]; then NAME="BakaSU"; else NAME="OriginSU ${ORIGINSU_TAG}"; fi
           sed -i -E "s|^kernel\.string=.*|kernel.string=Xiaomi ${MODEL} (${DEVICE}) LineageOS ${LINEAGE_VERSION} kernel with ${NAME} + SuSFS - based on the Coconutat SDM845 kernel|" "$AK"
           # (no single quote allowed in kernel.string: it sits inside properties() { ' ... ' })
           [ "$(grep -c "'" "$AK")" = "$(grep -c "'" "$KERNEL_DIR/tools/AnyKernel3_sh/anykernel.sh")" ] \
@@ -988,7 +975,7 @@ jobs:
           grep -q "^device.name1=${DEVICE}$" "$AK" || { echo "::error::anykernel.sh: device check not set"; exit 1; }
 
           KREL=$(cat "$KERNEL_DIR/out/include/config/kernel.release" 2>/dev/null)
-          if [ "$ROOT" = "bakasu" ]; then SU=BakaSU-control; else SU="OriginSU-${ORIGINSU_TAG}"; fi
+          if [ "$ROOT" = "bakasu" ]; then SU=BakaSU; else SU="OriginSU-${ORIGINSU_TAG}"; fi
           ZIP="sdm845-${DEVICE}-LOS${LINEAGE_VERSION}-${SU}-susfs-$(date +%Y%m%d).zip"
           (cd AnyKernel3 && zip -rq9 "../$ZIP" ./*)
           mkdir -p dist
@@ -1012,33 +999,22 @@ jobs:
     needs: [check, build]
     if: >-
       needs.check.outputs.build == 'true' && needs.build.result == 'success' &&
-      inputs.publish && inputs.root != 'bakasu'
+      inputs.publish && inputs.root == 'bakasu'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TAG: originsu-${{ needs.check.outputs.tag }}
-      ORIGINSU_TAG: ${{ needs.check.outputs.tag }}
+      TAG: bakasu-los${{ needs.check.outputs.lineage }}
       KERNEL_BRANCH: ${{ needs.check.outputs.branch }}
       LINEAGE_VERSION: ${{ needs.check.outputs.lineage }}
       ANDROID_VERSION: ${{ needs.check.outputs.android }}
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: sdm845-*-originsu
+          pattern: sdm845-*-bakasu
           merge-multiple: true
           path: dist
-
-      - name: Fetch the OriginSU manager APK
-        # Same tag as the kernel (KazeSU/KazeSU release "legacy-<tag>"); arm64-v8a only.
-        run: |
-          gh release download "$ORIGINSU_TAG" --repo KazeSU/KazeSU \
-            --pattern 'OriginSU_*-arm64-v8a-release.apk' --dir dist
-          APK="$(ls dist/OriginSU_*-arm64-v8a-release.apk 2>/dev/null | head -n1)"
-          [ -n "$APK" ] || { echo "::error::OriginSU manager APK not found in KazeSU/KazeSU release $ORIGINSU_TAG"; exit 1; }
-          echo "MANAGER_APK=$(basename "$APK")" >> "$GITHUB_ENV"
-          echo "-> $(basename "$APK") ($(du -h "$APK" | cut -f1))"
 
       - name: Write release notes
         run: |
@@ -1060,18 +1036,17 @@ jobs:
             DEVROWS="${DEVROWS}| ${m} | \`${dev}\` | \`${b}\` |"$'\n'
           done
           cat > notes.md <<EOF
-          ## Xiaomi SDM845 kernels — OriginSU \`${ORIGINSU_TAG}\`
+          ## Xiaomi SDM845 kernels — BakaSU
 
           | | |
           |---|---|
-          | OriginSU | [${ORIGINSU_TAG}](https://github.com/KazeSU/KazeSU/releases/tag/${ORIGINSU_TAG}) (final OriginSU release, kernel + manager, now hosted by KazeSU as "legacy-${ORIGINSU_TAG}") |
+          | Root | BakaSU |
           | ROM | LineageOS ${LINEAGE_VERSION} (Android ${ANDROID_VERSION}) and /e/OS based on it |
           | Kernel | Coconutat SDM845 \`${KERNEL_BRANCH}\` @ [\`${KERNEL_COMMIT}\`](https://github.com/${KERNEL_REPO}/commit/${KERNEL_COMMIT}) |
           | Kernel version | \`${KERNEL_RELEASE}\` |
           | SuSFS | \`${SUSFS_VERSION}\` (inline hook; v2.4.0 = JackA1ltman's 4.9 port, the tree ships v2.3.0) |
           | Extra features | Baseband Guard · NoMount · Droidspaces (with memory limits) · TCP BBR + fq (default) |
           | Optimizations | ZRAM in lz4 by default (was lzo; zstd available) · power-efficient workqueues · TTL/HL targets · \`vm.swappiness\` and per-cgroup swappiness up to 200 (the ROM's 140 for background apps now applies) · Cortex-A55 tuning |
-          | Manager | \`${MANAGER_APK}\` (attached) |
           | Build date | $(date -u +%Y-%m-%d) |
 
           ### Which zip for my device?
@@ -1080,23 +1055,10 @@ jobs:
           | Device | Codename | Zip |
           |---|---|---|
           ${DEVROWS}
-          > ⚠️ **Not fully tested.** These per-device builds are produced automatically. The
-          > maintainer tests on **beryllium (POCO F1)**, **dipper (Mi 8)** and **polaris (Mi MIX 2S)**;
-          > the other variants are untested — back up your stock \`boot\` and test before daily use.
 
-          Flash from TWRP / OrangeFox, then install the attached **OriginSU manager**
-          (\`${MANAGER_APK}\`, same version as the kernel — not the KazeSU v1.x manager).
-          **Back up your stock \`boot\` partition first.**
-
-          ### Modules — pick a mount mode
-          OriginSU mounts modules itself: open the manager's **OriginMount** screen and pick a mode.
-          In \`auto\` (default) nothing is mounted unless a metamodule is installed or Magic Mount is enabled.
-          **NoMount** is built into this kernel (no real mounts, nothing in \`/proc/mounts\`): choose \`nomount\`
-          and do not install the separate NoMount module zip.
-
-          > **Why OriginSU and not KazeSU?** KazeSU v1.x does not build on this Linux 4.9 kernel (its SELinux
-          > code needs 5.10+), and 4.9 is the newest kernel LineageOS ships for SDM845. OriginSU \`${ORIGINSU_TAG}\`
-          > stays the recommended root here.
+          Flash from TWRP / OrangeFox and install a BakaSU manager compatible with this kernel.
+          The manager is not attached to this release. **Back up your stock \`boot\` partition first.**
+          NoMount is built into the kernel; BakaSU manager integration with its driver has not been verified.
           EOF
           sed -i 's/^          //' notes.md
 
@@ -1104,6 +1066,6 @@ jobs:
         run: |
           gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag -y 2>/dev/null || true
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --title "Xiaomi SDM845 LineageOS ${LINEAGE_VERSION} — OriginSU ${ORIGINSU_TAG}" \
+            --title "Xiaomi SDM845 LineageOS ${LINEAGE_VERSION} — BakaSU" \
             --notes-file notes.md --latest \
-            dist/*.zip dist/config-*.txt dist/*.apk
+            dist/*.zip dist/config-*.txt

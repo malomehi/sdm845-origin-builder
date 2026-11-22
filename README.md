@@ -1,14 +1,14 @@
-# Xiaomi SDM845 Kernel Builder with OriginSU
+# Xiaomi SDM845 Kernel Builder with BakaSU or OriginSU
 
 [![Build](https://img.shields.io/badge/build-GitHub%20Actions-blue?logo=github-actions&logoColor=white)](https://github.com/1992Ade/sdm845-origin-builder/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/1992Ade/sdm845-origin-builder?label=latest&logo=github)](https://github.com/1992Ade/sdm845-origin-builder/releases/latest)
 
 > [!IMPORTANT]
-> **This is the recommended kernel for Xiaomi SDM845 — OriginSU `v4.3.0`, the final OriginSU release.**
-> OriginSU has been renamed and rebuilt as **[KazeSU](https://github.com/KazeSU/KazeSU)**, which targets modern (GKI 5.10+) kernels and **does not build on this Linux 4.9 kernel** (its SELinux code needs the 5.10+ layout). OriginSU `v4.3.0` still supports it fully (non-GKI hooks, SuSFS, built-in module mounting), so this builder stays on it: the root solution is frozen, but the builder is still maintained by hand for kernel updates and optimizations.
+> **This builder defaults to BakaSU. OriginSU `v4.3.0` is available as an alternative.**
+> OriginSU has been renamed and rebuilt as **[KazeSU](https://github.com/KazeSU/KazeSU)**, which targets modern (GKI 5.10+) kernels and **does not build on this Linux 4.9 kernel** (its SELinux code needs the 5.10+ layout). OriginSU `v4.3.0` remains available for this kernel (non-GKI hooks, SuSFS, built-in module mounting); it is frozen, but the builder is still maintained by hand for kernel updates and optimizations.
 > **4.9 is also the newest kernel LineageOS ships for SDM845.** Mainline Linux runs on some of these phones (POCO F1, Mi MIX 2S), but only for Linux distributions or bare AOSP test builds, not for LineageOS-based ROMs.
 >
-> KazeSU builds for SDM845 ([sdm845-KazeSU-builder](https://github.com/1992Ade/sdm845-KazeSU-builder)) are **on hold** until KazeSU supports older kernels again. The OriginSU `v4.3.0` manager APK is attached to every release (also on the KazeSU repository: [tag `v4.3.0`, release "legacy-v4.3.0"](https://github.com/KazeSU/KazeSU/releases/tag/v4.3.0)). Note that KazeSU `v1.0.0` works with this kernel too but new root hiding method is not implemented.
+> KazeSU builds for SDM845 ([sdm845-KazeSU-builder](https://github.com/1992Ade/sdm845-KazeSU-builder)) are **on hold** until KazeSU supports older kernels again. The matching OriginSU `v4.3.0` manager APK is available from the KazeSU repository: [tag `v4.3.0`, release "legacy-v4.3.0"](https://github.com/KazeSU/KazeSU/releases/tag/v4.3.0). BakaSU builds are published as GitHub Releases; OriginSU builds are available only as workflow-run artifacts.
 
 > **Your warranty is now void.** Flashing a custom kernel can brick your device. You are responsible for what you flash. Always keep a backup of your stock `boot` partition.
 
@@ -16,13 +16,13 @@
 
 This repository automates the compilation of a custom **Linux 4.9** kernel for **Xiaomi Snapdragon 845 (SDM845)** devices — Mi 8, POCO F1, Mi MIX 2S and their siblings. It is based on the LineageOS-derived kernel tree by **[Coconutat](https://github.com/Coconutat/android_kernel_xiaomi_sdm845_lineageos_Exp)**, which already ships **SuSFS** and its inline hooks (originally used with BakaSU).
 
-Every build integrates the **[OriginSU v4.3.0](https://github.com/KazeSU/KazeSU/releases/tag/v4.3.0)** kernel-based root solution in place of BakaSU — together with **SuSFS**, **Baseband Guard**, **NoMount**, **Droidspaces**, **TCP BBR** and a few [optimizations](#-optimizations) (see [Included features](#-included-features)) — and produces **one recovery-flashable `.zip` per device** (TWRP / OrangeFox) with AnyKernel3. The matching **OriginSU manager APK** is attached to each release.
+The workflow builds the kernel with **BakaSU by default**, or **[OriginSU v4.3.0](https://github.com/KazeSU/KazeSU/releases/tag/v4.3.0)** when selected. Both build modes include **SuSFS** (v2.4.0 by default), **Baseband Guard**, **NoMount**, **Droidspaces**, **TCP BBR** and the [optimizations](#-optimizations) below, and produce a recovery-flashable `.zip` for the selected device. The current matrix builds **dipper (Xiaomi Mi 8) only**. BakaSU zips are published in a GitHub Release and attached to the Actions run; OriginSU builds are artifacts only.
 
 > [!WARNING]
 > **LineageOS-based ROMs only.** This is a LineageOS kernel. Kernels for LineageOS (and ROMs built on it, such as /e/OS) and kernels for other ROM families such as crDroid are **not interchangeable** on SDM845: one does not boot on the other. Check that your ROM uses the LineageOS `sdm845` kernel before flashing.
 
 
-**Manual builds only:** OriginSU will not get new releases, so the weekly check was removed. Running the workflow by hand rebuilds OriginSU `v4.3.0` for every device on the latest kernel, with the current optimizations, and replaces the release.
+**Manual builds only:** run the workflow from the Actions tab. BakaSU is the default and creates or replaces a release for the selected LineageOS version; selecting OriginSU produces run artifacts only.
 
 **Always the latest LineageOS:** each run picks the most recent LineageOS version available in the Coconutat tree (today `lineage-22.2-BakaSU`, LineageOS 22.2 / Android 15). When a newer LineageOS branch with SuSFS appears (e.g. LineageOS 23 / Android 16), the next manual run switches to it on its own.
 
@@ -30,13 +30,13 @@ Every build integrates the **[OriginSU v4.3.0](https://github.com/KazeSU/KazeSU/
 
 ## 🧩 Included Features
 
-On top of OriginSU, every build enables the same hardening/usability modules as the base [perf_neon-builder](https://github.com/riarumoda/perf_neon-builder):
+Both root-solution build modes enable the following kernel features and optimizations:
 
 | Feature | Upstream | What it does | Kernel config |
 |---|---|---|---|
 | **SuSFS v2.4.0** | [simonpunk](https://gitlab.com/simonpunk/susfs4ksu), 4.9 port by [JackA1ltman](https://github.com/JackA1ltman/NonGKI_Kernel_Build_2nd) | Hides root/mounts from detection. The Coconutat tree ships v2.3.0; the build updates it to v2.4.0 (see [SuSFS v2.4.0](#-susfs-v240)) | `CONFIG_KSU_SUSFS_*` |
 | **Baseband Guard** | [vc-teahouse](https://github.com/vc-teahouse/Baseband-guard) | LSM that blocks writes to the modem/baseband partitions | `CONFIG_BBG=y` |
-| **NoMount** | [maxsteeel](https://github.com/maxsteeel/nomount) | Mounts modules without real mounts (VFS path redirection, nothing in `/proc/mounts`) — driven by OriginSU's *OriginMount* screen, see [Modules](#-modules) | `CONFIG_NOMOUNT=y` |
+| **NoMount** | [maxsteeel](https://github.com/maxsteeel/nomount) | Builds the NoMount driver into the kernel (VFS path redirection, nothing in `/proc/mounts`). OriginSU v4.3.0 can control it through *OriginMount*; BakaSU manager integration has not been verified | `CONFIG_NOMOUNT=y` |
 | **Droidspaces** | [ravindu644](https://github.com/ravindu644/Droidspaces-OSS) | Namespace/cgroup isolation to run isolated Android/Linux spaces | `CONFIG_NAMESPACES`, `CONFIG_*_NS`, cgroups, netfilter… |
 | **TCP BBR + fq** | [Google](https://github.com/google/bbr) (mainline since 4.9) | BBR congestion control **set as default** (the stock Coconutat kernel uses CUBIC), with the **`fq` qdisc as default** so BBR can pace its traffic | `CONFIG_DEFAULT_BBR=y`, `CONFIG_NET_SCH_FQ=y`, `CONFIG_DEFAULT_FQ=y` |
 | **Optimizations** | this repo | ZRAM in lz4 by default, power-efficient workqueues, TTL/HL targets, `vm.swappiness` and per-cgroup swappiness up to 200, Cortex-A55 tuning (see [Optimizations](#-optimizations)) | `CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y`… |
@@ -75,18 +75,12 @@ One zip is built per device. **Flash only the zip whose codename matches your ph
 
 | Device | Codename | Test status |
 |---|---|---|
-| Xiaomi Mi 8 | `dipper` | ✅ **Working** (tested by the maintainer) |
-| Pocophone F1 / POCO F1 | `beryllium` | 🧪 Primary — please test |
-| Xiaomi Mi MIX 2S | `polaris` | 🧪 Primary — please test |
-| Xiaomi Mi 8 Pro | `equuleus` | ⚠️ Built, untested |
-| Xiaomi Mi MIX 3 | `perseus` | ⚠️ Built, untested |
-| Xiaomi Mi 8 Explorer Edition | `ursa` | ⚠️ Built, untested |
+| Xiaomi Mi 8 | `dipper` | Current build target; previous builds tested by the maintainer |
 
 > ### 🧪 Testing status
-> **`dipper` (Mi 8)** is tested and confirmed working. The other builds are produced automatically and have **not all been verified on real hardware**: **`beryllium` (POCO F1)** and **`polaris` (Mi MIX 2S)** still need testing, and the remaining variants (`equuleus`, `perseus`, `ursa`) are built because the Coconutat tree provides their config but are completely untested — **back up your stock `boot` and flash at your own risk.**
-> If you test any of the untested devices, please open an issue reporting whether it boots and whether Wi-Fi / mobile network / camera work.
+> The workflow currently builds **only `dipper`**. Previous builds of this device were tested, but the current BakaSU configuration has not been validated on hardware. Back up your stock `boot` and test before daily use.
 
-The kernel comes from the LineageOS kernel tree, so it works with ROMs built on the LineageOS `sdm845` 4.9 kernel. Each release states the LineageOS version it was built for (also in the zip name, e.g. `LOS22.2`) — **flash the release that matches the LineageOS / /e/OS version on your phone**. Currently:
+The kernel comes from the LineageOS kernel tree, so it works with ROMs built on the LineageOS `sdm845` 4.9 kernel. Each build records its LineageOS version in the zip name (e.g. `LOS22.2`) — **use a build that matches the LineageOS / /e/OS version on your phone**. Currently:
 
 | ROM | Status | Links |
 |---|---|---|
@@ -101,31 +95,36 @@ Other ROMs may work only if they are built on the LineageOS `sdm845` 4.9 kernel 
 
 ## 📦 Which zip should I download?
 
-Each release ships **one zip per device**, named:
+Each build produces a zip for the selected device. The filename identifies the root solution:
 
 ```
+sdm845-<codename>-LOS<lineage>-BakaSU-susfs-<date>.zip
 sdm845-<codename>-LOS<lineage>-OriginSU-<version>-susfs-<date>.zip
 ```
 
-For example `sdm845-dipper-LOS22.2-OriginSU-v4.3.0-susfs-20261115.zip` for the Mi 8. Only the **SuSFS** variant is built: the Coconutat tree has its KernelSU hooks written for SuSFS. The full kernel `.config` of each device is attached to the release for reference.
+For example `sdm845-dipper-LOS22.2-BakaSU-susfs-20261115.zip` for the Mi 8. BakaSU zips and configs are available in both the GitHub Release and workflow run's **Artifacts** section. OriginSU zips and configs are available only from the workflow run's artifacts; its manager APK is not included. Only the **SuSFS** variant is built: the Coconutat tree has its KernelSU hooks written for SuSFS.
+
+### Getting a BakaSU build
+
+Run **Build Xiaomi SDM845 Kernels with BakaSU or OriginSU** from the Actions tab with `root` set to `bakasu` (the default). Download the `sdm845-dipper-bakasu` artifact from the run, or the latest `bakasu-los<lineage>` GitHub Release, and extract the flashable zip and build config. Back up `boot`, then flash the zip in recovery or with `adb sideload`. Use the manager/version recommended by BakaSU; no manager is attached to the release. NoMount is built into the kernel, but BakaSU manager control of its driver has not been verified here.
 
 ---
 
-## 🔧 Installation
+## 🔧 Installing an OriginSU artifact
 
 0. **Coming from Magisk, APatch, BakaSU or another KernelSU?** Read [this warning](#️-coming-from-another-root-solution) first.
 1. Back up your stock `boot` partition (from TWRP/OrangeFox, or keep the `boot.img` from your LineageOS / /e/OS zip).
-2. Download **the zip matching your device codename** from the [latest release](https://github.com/1992Ade/sdm845-origin-builder/releases/latest).
+2. Download the `sdm845-dipper-originsu` artifact from the workflow run and extract the zip matching your device codename.
 3. Reboot to recovery and flash it, or use `adb sideload <file>.zip`.
 4. Reboot to system.
-5. Install the **OriginSU manager** APK attached to the same release (`OriginSU_v4.3.0_…-arm64-v8a-release.apk`, also on the [legacy-v4.3.0 page](https://github.com/KazeSU/KazeSU/releases/tag/v4.3.0)). It must match the kernel: do **not** install the KazeSU v1.x manager with this kernel.
+5. Install the **OriginSU manager** APK matching the selected OriginSU tag. For the default `v4.3.0` build, get `OriginSU_v4.3.0_…-arm64-v8a-release.apk` from the [KazeSU legacy release](https://github.com/KazeSU/KazeSU/releases/tag/v4.3.0). Do **not** install the KazeSU v1.x manager with this kernel.
 6. **Pick a module mount mode** in the manager's **OriginMount** screen — otherwise modules that change `/system` are not mounted (see [Modules](#-modules)).
 
-> **Updating the ROM?** A LineageOS / /e/OS OTA update replaces the `boot` partition, so the OriginSU kernel is removed. Flash the zip again after each ROM update.
+> **Updating the ROM?** A LineageOS / /e/OS OTA update replaces the `boot` partition, so the custom kernel is removed. Flash the matching zip again after each ROM update.
 
 ### 🧱 Modules
 
-OriginSU mounts modules itself. Choose how in the manager's **OriginMount** screen (the choice applies from the next boot):
+For OriginSU builds, module mounting is controlled in the manager's **OriginMount** screen (the choice applies from the next boot):
 
 | Mode | What it does |
 |---|---|
@@ -153,7 +152,7 @@ dmesg | grep -iE "nomount|baseband|susfs" | head      # NoMount, Baseband Guard,
 ls /proc/self/ns                                      # user net pid uts ipc ... (Droidspaces)
 ```
 
-In the manager: OriginSU **v4.3.0**, SuSFS **v2.4.0**, and NoMount shown as available in **OriginMount**. Then check Wi-Fi, mobile data and calls, camera, Bluetooth, fingerprint, audio, charging and overnight battery drain. If something is wrong, save the logs right after reproducing it: `dmesg > /sdcard/dmesg.txt` and `logcat -b all -d > /sdcard/logcat.txt`.
+For an OriginSU build, verify the manager reports **v4.3.0**, SuSFS **v2.4.0**, and NoMount as available in **OriginMount**. For BakaSU, use its own manager and verify its supported features; NoMount manager integration has not been tested. Then check Wi-Fi, mobile data and calls, camera, Bluetooth, fingerprint, audio, charging and overnight battery drain. If something is wrong, save the logs right after reproducing it: `dmesg > /sdcard/dmesg.txt` and `logcat -b all -d > /sdcard/logcat.txt`.
 
 ### ↩️ Restore the stock kernel
 
@@ -168,40 +167,40 @@ fastboot reboot
 
 ## ⚙️ How the Build Works
 
-The workflow lives in [`.github/workflows/build.yml`](.github/workflows/build.yml) and runs three jobs:
+The workflow lives in [`.github/workflows/build.yml`](.github/workflows/build.yml):
 
 ```
-check  ──►  build (matrix: 6 devices)  ──►  release
+check  ──►  build (dipper)  ──►  release (BakaSU only)
 ```
 
 1. **check**
-   - Selects the OriginSU tag (`v4.3.0` by default; only `v4.x` OriginSU tags are accepted) and makes sure its release ships the **manager APK**.
+   - For OriginSU builds, validates the selected tag (`v4.3.0` by default; only `v4.x` tags are accepted). BakaSU builds do not depend on an OriginSU release.
    - Picks the kernel branch: among the `lineage-<version>[-suffix]` branches of the Coconutat tree, the highest LineageOS version first, and for the same version the most recently updated branch. A branch is kept only if it contains SuSFS, its inline hooks and the shared SDM845 configs.
-2. **build** (matrix: `beryllium`, `dipper`, `equuleus`, `polaris`, `perseus`, `ursa` — in parallel, `fail-fast: false`)
+2. **build** (currently `dipper` only)
    - Clones the selected Coconutat SDM845 kernel branch.
    - Downloads **AOSP Clang r547379**, the toolchain recommended by the kernel's author.
-   - Integrates OriginSU at the exact tag with its own `setup.sh` from that tag, cloned from the KazeSU repository (the build stops if the tag cannot be checked out) (plus small 4.9 compatibility fixes applied to OriginSU's sources only), then checks that every SuSFS inline hook OriginSU needs is in the tree.
-   - Generates the config from `vendor/xiaomi/mi845_defconfig` + `extra.config` + `<device>.config`, then enables the **extra features** (Baseband Guard, NoMount, Droidspaces, TCP BBR + `fq` as default — see [above](#-included-features)) and the [optimizations](#-optimizations), all checked in the final `.config`; the build stops if the NoMount driver speaks an API older than the one OriginSU requires (22).
+   - Installs the selected root solution: BakaSU by default, or OriginSU at the exact selected tag with its 4.9 compatibility fixes.
+   - Applies the selected SuSFS version and enables the shared features (Baseband Guard, NoMount, Droidspaces, TCP BBR + `fq` as default) and [optimizations](#-optimizations) for either root solution. The NoMount API compatibility check applies to OriginSU.
    - Packages like Coconutat: osm0sis AnyKernel3 + the tree's own `tools/AnyKernel3_sh/anykernel.sh`, with both `Image.gz` and `Image.gz-dtb`. AnyKernel3 flashes `Image.gz` and **keeps the DTB of your ROM's `boot.img`**. Each zip installs on its own device only.
-3. **release** — downloads the matching OriginSU manager APK (arm64-v8a) and publishes a GitHub Release `originsu-<tag>` with every device zip, the configs, the manager and release notes (OriginSU version, LineageOS version, kernel branch and commit, kernel version, SuSFS version, the per-device zip table and the build date).
+3. **release** (BakaSU only) — publishes/replaces `bakasu-los<lineage>` with the BakaSU zip and config. OriginSU builds remain downloadable from the Actions run artifacts.
 
 ### Schedule
 
 | Trigger | Behaviour |
 |---|---|
-| Manual (`Run workflow`) | Builds OriginSU `v4.3.0` (or another `v4.x` tag); you can pick a kernel branch, toggle KPM and choose whether to publish a release |
+| Manual (`Run workflow`) | Builds BakaSU by default; you can select OriginSU, pick a kernel branch, choose the SuSFS version, toggle KPM and choose whether to publish the BakaSU release |
 
-There is no scheduled build any more (OriginSU is discontinued).
+There is no scheduled build.
 
-A manual run for a version that is already released **replaces** that release (useful to pick up kernel updates). A `bakasu` manual run builds the untouched Coconutat kernel (no extra features) as a control.
+A manual BakaSU run with `publish` enabled for a LineageOS version that is already released **replaces** that release (useful to pick up kernel updates). OriginSU runs do not publish or replace a release.
 
 ---
 
 ## 🚀 Using This Repository (forks)
 
 1. Fork the repository.
-2. Go to **Settings → Actions → General** and make sure Actions are enabled and **Workflow permissions** allow *Read and write* (needed to publish releases).
-3. Run **Build Xiaomi SDM845 Kernels with OriginSU** once manually to create the first release.
+2. Go to **Settings → Actions → General** and make sure Actions are enabled. **Read and write** workflow permissions are needed to publish BakaSU releases.
+3. Run **Build Xiaomi SDM845 Kernels with BakaSU or OriginSU** manually. BakaSU builds publish a release by default; OriginSU builds produce run artifacts only.
 
 ### Manual run options
 
@@ -209,10 +208,10 @@ A manual run for a version that is already released **replaces** that release (u
 |---|---|---|
 | `originsu_ref` | `v4.3.0` | OriginSU tag to build (`v4.x` only) |
 | `kernel_branch` | *(latest LineageOS with SuSFS)* | Force a branch of the Coconutat kernel tree (e.g. `lineage-22.2-ReSukiSU`) |
-| `root` | `originsu` | `bakasu` builds the untouched Coconutat kernel (BakaSU) as a **control build**, with no extra features. Never published |
+| `root` | `bakasu` | Select `bakasu` (default) or `originsu`; both receive the shared SuSFS update and kernel features. OriginSU is artifact-only |
 | `susfs` | `v2.4.0` | `v2.4.0` updates SuSFS to JackA1ltman's 4.9 port (pinned commit); `tree` keeps the tree's v2.3.0 |
 | `kpm` | `false` | Enable `CONFIG_KPM` (experimental on 4.9 kernels) |
-| `publish` | `true` | Publish a GitHub Release (otherwise only build artifacts) |
+| `publish` | `true` | Publish or replace the BakaSU GitHub Release (ignored for OriginSU builds) |
 
 ---
 
@@ -228,7 +227,7 @@ What changes for you, with the **susfs4ksu** module (sidex15):
 | Allow an app to see them | — | **sus_path uid filter** (new command `CMD_SUSFS_SET_SUS_PATH_UID_FILTER`): a list of package names |
 | After an app is reinstalled | — | Its new uid is picked up automatically (when `packages.list` is rewritten) |
 
-OriginSU v4.3.0 predates v2.4.0, so the build wires that one new command into OriginSU's SuSFS dispatcher and refreshes the allowed apps' uids on package changes. Root processes (`su`) always see everything.
+OriginSU v4.3.0 predates v2.4.0, so its build wires that one new command into OriginSU's SuSFS dispatcher and refreshes the allowed apps' uids on package changes. For BakaSU, the workflow leaves the setup-provided integration unchanged; manager-side support for every v2.4.0 feature should be confirmed with BakaSU. Root processes (`su`) always see everything.
 
 ---
 
@@ -242,10 +241,10 @@ OriginSU v4.3.0 predates v2.4.0, so the build wires that one new command into Or
 | `::warning` about a Droidspaces patch being skipped | Expected on 4.9 — the upstream fix doesn't fit this tree; the build continues with the Droidspaces configs enabled (see the Droidspaces note above) |
 | Droidspaces greys out `--cpus` | Expected: the CPU limit needs `CONFIG_CFS_BANDWIDTH`, which Qualcomm's WALT scheduler excludes on this kernel. Memory/swap limits work |
 | Build fails with `… missing from the final config` | A config this builder relies on was dropped by Kconfig — check the *Optimizations* lines of the *Extra features* step |
-| Modules installed but their files don't show up | Pick a mode in **OriginMount** (`auto` mounts nothing without a metamodule or Magic Mount) — see [Modules](#-modules) |
+| OriginSU modules installed but their files don't show up | Pick a mode in **OriginMount** (`auto` mounts nothing without a metamodule or Magic Mount) — see [Modules](#-modules) |
 | Bootloop after flashing on crDroid or another non-LineageOS ROM | Expected: this LineageOS kernel does not boot on crDroid-family ROMs. Restore your `boot` backup |
 | Build fails in *Extra features* (Baseband Guard / NoMount setup) | Check `build-<device>.log` in the run artifacts; the setup script of one of the modules failed to download or patch the tree |
-| One device fails but others succeed | `fail-fast: false` keeps the rest building; check that device's `build-<device>.log` |
+| The device build fails | Check `build-dipper.log` in the run artifacts |
 | Build fails with KPM errors | Re-run manually with `kpm` disabled |
 | *check* fails with "No LineageOS branch with SuSFS found" | The Coconutat tree changed its branch layout — run manually with `kernel_branch` set |
 | Zip refuses to install ("unsupported device") | You flashed the wrong device's zip — pick the one whose codename matches your phone, and make sure your ROM matches the LineageOS version of the release |
@@ -256,11 +255,13 @@ OriginSU v4.3.0 predates v2.4.0, so the build wires that one new command into Or
 
 ### ⚠️ Coming from another root solution?
 
-If you previously used **Magisk, APatch, BakaSU, KernelSU, SukiSU or ReSukiSU**, your old modules are still in `/data/adb/modules` and will be loaded by OriginSU.
+If you previously used **Magisk, APatch, BakaSU, KernelSU, SukiSU or ReSukiSU**, review and remove incompatible modules before switching root solutions. For an OriginSU build, old modules in `/data/adb/modules` may be loaded by OriginSU.
 
-OriginSU ships its **own Zygisk (OriginZygisk)**. Old modules — especially another Zygisk implementation (ReZygisk, NeoZygisk, Zygisk Next) or Zygisk-based modules such as LSPosed — can conflict with it. The typical symptom is a phone that **boots fine but has no Wi-Fi, no mobile network and/or no camera**.
+OriginSU ships its **own Zygisk (OriginZygisk)**. On OriginSU builds, old modules — especially another Zygisk implementation (ReZygisk, NeoZygisk, Zygisk Next) or Zygisk-based modules such as LSPosed — can conflict with it. The typical symptom is a phone that **boots fine but has no Wi-Fi, no mobile network and/or no camera**. For BakaSU builds, follow BakaSU's migration and module compatibility guidance.
 
-**Fix: uninstall all modules, then reinstall them one by one.**
+For OriginSU, uninstall incompatible modules and reinstall them one by one. For BakaSU, follow BakaSU's migration guidance instead.
+
+The following cleanup commands are for an OriginSU migration and remove the selected modules:
 
 From a PC (use the interactive shell — it also works in Windows PowerShell):
 
@@ -281,7 +282,7 @@ rm -rf /data/adb/modules/*
 reboot
 ```
 
-Then:
+After cleaning up for OriginSU:
 
 - Reinstall your modules **one at a time**, checking Wi-Fi, network and camera after each reboot.
 - Use **only one Zygisk**: keep OriginZygisk and don't install another Zygisk module.
@@ -297,7 +298,8 @@ This project relies on the incredible work of the following open-source projects
 * **[Coconutat](https://github.com/Coconutat/android_kernel_xiaomi_sdm845_lineageos_Exp)** — For the Xiaomi SDM845 LineageOS kernel tree with SuSFS already integrated (`lineage-*` branches).
 * **[LineageOS](https://github.com/LineageOS/android_kernel_xiaomi_sdm845)** — For the original Xiaomi SDM845 kernel source and device support.
 * **[/e/OS](https://e.foundation/)** — For the de-Googled Android 15 builds.
-* **[OriginSU](https://github.com/KazeSU/KazeSU/releases/tag/v4.3.0)** (now [KazeSU](https://github.com/KazeSU/KazeSU)) — For the kernel-based root solution.
+* **[BakaSU](https://github.com/Baka-SU/BakaSU)** — For the default kernel-based root solution.
+* **[OriginSU](https://github.com/KazeSU/KazeSU/releases/tag/v4.3.0)** (now [KazeSU](https://github.com/KazeSU/KazeSU)) — For the optional kernel-based root solution.
 * **[riarumoda](https://github.com/riarumoda/perf_neon-builder)** — For perf_neon-builder, whose feature integration (Baseband Guard, NoMount, Droidspaces) this build reuses.
 * **[osm0sis](https://github.com/osm0sis/AnyKernel3)** — For AnyKernel3.
 * **[simonpunk](https://gitlab.com/simonpunk/susfs4ksu)** — For SuSFS.
@@ -306,7 +308,7 @@ This project relies on the incredible work of the following open-source projects
 * **[ravindu644](https://github.com/ravindu644/Droidspaces-OSS)** — For Droidspaces.
 * **[JackA1ltman](https://github.com/JackA1ltman/NonGKI_Kernel_Build_2nd)** — For the non-GKI SuSFS work the kernel tree builds on.
 * **[AOSP](https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/)** — For the Clang toolchain.
-* **[tiann/KernelSU](https://github.com/tiann/KernelSU)** — The project OriginSU is built upon.
+* **[tiann/KernelSU](https://github.com/tiann/KernelSU)** — The project BakaSU and OriginSU are based on.
 
 ## 📄 License
 
