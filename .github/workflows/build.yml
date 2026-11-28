@@ -85,6 +85,38 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - name: Validate BakaSU artifact token
+        if: inputs.root == 'bakasu' && inputs.publish
+        env:
+          GH_TOKEN: ${{ secrets.BAKASU_ACTIONS_TOKEN }}
+        run: |
+          [ -n "$GH_TOKEN" ] \
+            || { echo "::error::Set the BAKASU_ACTIONS_TOKEN Actions secret to a token with read access to Baka-SU/BakaSU workflow artifacts."; exit 1; }
+
+          if ! RUN_ID=$(gh api \
+            "repos/Baka-SU/BakaSU/actions/workflows/build-manager.yml/runs?branch=main&status=completed&event=push&per_page=20" \
+            --jq '.workflow_runs[] | select(.conclusion == "success") | .id' | head -n 1); then
+            echo "::error::The token cannot read Baka-SU workflow runs."; exit 1
+          fi
+          [ -n "$RUN_ID" ] \
+            || { echo "::error::No successful BakaSU manager workflow run is available to validate artifact access."; exit 1; }
+
+          if ! ARTIFACT_ID=$(gh api \
+            "repos/Baka-SU/BakaSU/actions/runs/$RUN_ID/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.name == "Manager-release" and .expired == false) | .id' | head -n 1); then
+            echo "::error::The token cannot list Baka-SU workflow artifacts."; exit 1
+          fi
+          [ -n "$ARTIFACT_ID" ] \
+            || { echo "::error::No unexpired Baka-SU Manager-release artifact is available to validate access."; exit 1; }
+
+          STATUS=$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/Baka-SU/BakaSU/actions/artifacts/$ARTIFACT_ID/zip")
+          [ "$STATUS" = "302" ] \
+            || { echo "::error::The token cannot download Baka-SU workflow artifacts (HTTP $STATUS)."; exit 1; }
+          echo "BakaSU artifact token can download manager artifacts."
+
       - name: Select OriginSU version
         id: ver
         if: inputs.root != 'bakasu'
@@ -157,7 +189,7 @@ jobs:
                     done | sort -r | cut -d' ' -f2)
             for b in $CANDS; do
               # Needs SuSFS + every hook + the shared SDM845 configs used by the build
-              # (per-device <codename>.config is checked later, in each build matrix leg)
+              # (dipper.config is checked later in the build job)
               if usable "$b"; then pick "$b"; exit 0; fi
             done
           done
@@ -248,6 +280,9 @@ jobs:
             # Install BakaSU as the root solution; shared kernel/SuSFS changes follow below.
             curl -fLSs https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh | bash
             [ -e drivers/kernelsu/Kconfig ] || { echo "::error::drivers/kernelsu missing after setup.sh"; exit 1; }
+            BAKASU_COMMIT=$(git -C KernelSU rev-parse HEAD)
+            echo "BAKASU_COMMIT=$BAKASU_COMMIT" >> "$GITHUB_ENV"
+            echo "BakaSU commit: $BAKASU_COMMIT"
           else
             # OriginSU (clone into ./KernelSU + drivers/kernelsu symlink)
             # samakshkambxj/OriginSU now redirects to KazeSU/KazeSU, whose main branch is KazeSU:
@@ -549,8 +584,10 @@ jobs:
       - name: Generate kernel config
         working-directory: ${{ env.KERNEL_DIR }}
         run: |
+          [ "$DEVICE" = "dipper" ] \
+            || { echo "::error::Only Xiaomi Mi 8 (dipper) is currently supported."; exit 1; }
           mkdir -p out
-          # Per-device config must exist on this branch for this SDM845 variant
+          # The Mi 8 device config must exist on the selected kernel branch.
           [ -f "arch/arm64/configs/vendor/xiaomi/${DEVICE}.config" ] \
             || { echo "::error::vendor/xiaomi/${DEVICE}.config missing on ${KERNEL_BRANCH} — skipping ${DEVICE}"; exit 1; }
           # Same command as build_kernel.sh. The tree's extra.config already enables
@@ -956,13 +993,8 @@ jobs:
           # (this build uses <device>.config) and set the kernel name
           AK=AnyKernel3/anykernel.sh
           case "$DEVICE" in
-            beryllium) MODEL="POCO F1";;
             dipper)    MODEL="Mi 8";;
-            equuleus)  MODEL="Mi 8 Pro";;
-            polaris)   MODEL="Mi MIX 2S";;
-            perseus)   MODEL="Mi MIX 3";;
-            ursa)      MODEL="Mi 8 Explorer Edition";;
-            *)         MODEL="$DEVICE";;
+            *)         echo "::error::Only Xiaomi Mi 8 (dipper) is currently supported."; exit 1;;
           esac
           sed -i -E '/^device\.name[0-9]+=/d' "$AK"
           sed -i -E "s/^do\.devicecheck=.*/&\ndevice.name1=${DEVICE}/" "$AK"
@@ -985,6 +1017,13 @@ jobs:
           echo "KERNEL_COMMIT=$KERNEL_COMMIT" > dist/info-${DEVICE}.txt
           echo "KERNEL_RELEASE=$KREL" >> dist/info-${DEVICE}.txt
           echo "SUSFS_VERSION=$(grep -m1 SUSFS_VERSION "$KERNEL_DIR/include/linux/susfs.h" | cut -d'"' -f2)" >> dist/info-${DEVICE}.txt
+          if [ "$ROOT" = "bakasu" ]; then
+            BAKASU_VERSION_CODE=$(sed -nE 's/^-- BakaSU version code: ([0-9]+)$/\1/p' "$KERNEL_DIR/build.log" | tail -n 1)
+            [[ "$BAKASU_VERSION_CODE" =~ ^[0-9]+$ ]] \
+              || { echo "::error::Could not determine BakaSU driver version code from the kernel build log."; exit 1; }
+            echo "BAKASU_COMMIT=$BAKASU_COMMIT" >> dist/info-${DEVICE}.txt
+            echo "BAKASU_VERSION_CODE=$BAKASU_VERSION_CODE" >> dist/info-${DEVICE}.txt
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -1016,6 +1055,64 @@ jobs:
           merge-multiple: true
           path: dist
 
+      - name: Find matching BakaSU manager build
+        id: manager
+        env:
+          GH_TOKEN: ${{ secrets.BAKASU_ACTIONS_TOKEN }}
+        run: |
+          BAKASU_COMMIT=$(sed -nE 's/^BAKASU_COMMIT=([0-9a-f]{40})$/\1/p' dist/info-*.txt | head -n 1)
+          [[ "${BAKASU_COMMIT:-}" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo "::error::Missing or invalid BakaSU commit in build metadata."; exit 1; }
+
+          RUN_ID=$(gh api --paginate \
+            "repos/Baka-SU/BakaSU/actions/workflows/build-manager.yml/runs?head_sha=$BAKASU_COMMIT&status=completed&per_page=100" \
+            --jq '.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .conclusion == "success") | .id' \
+            | head -n 1)
+          [ -n "$RUN_ID" ] \
+            || { echo "::error::No successful BakaSU manager workflow run found for commit $BAKASU_COMMIT."; exit 1; }
+
+          ARTIFACT_ID=$(gh api \
+            "repos/Baka-SU/BakaSU/actions/runs/$RUN_ID/artifacts?per_page=100" \
+            --jq '.artifacts[] | select(.name == "Manager-release" and .expired == false) | .id' \
+            | head -n 1)
+          [ -n "$ARTIFACT_ID" ] \
+            || { echo "::error::The matching BakaSU manager run has no unexpired Manager-release artifact."; exit 1; }
+
+          echo "Using BakaSU manager workflow run $RUN_ID (commit $BAKASU_COMMIT)"
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Download matching BakaSU manager artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Manager-release
+          repository: Baka-SU/BakaSU
+          run-id: ${{ steps.manager.outputs.run_id }}
+          github-token: ${{ secrets.BAKASU_ACTIONS_TOKEN }}
+          path: manager-artifact
+
+      - name: Add BakaSU arm64-v8a manager APK to release assets
+        run: |
+          BAKASU_COMMIT=$(sed -nE 's/^BAKASU_COMMIT=([0-9a-f]{40})$/\1/p' dist/info-*.txt | head -n 1)
+          [[ "${BAKASU_COMMIT:-}" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo "::error::Missing or invalid BakaSU commit in build metadata."; exit 1; }
+          KERNEL_VERSION_CODE=$(sed -nE 's/^BAKASU_VERSION_CODE=([0-9]+)$/\1/p' dist/info-*.txt | head -n 1)
+          [[ "${KERNEL_VERSION_CODE:-}" =~ ^[0-9]+$ ]] \
+            || { echo "::error::Missing or invalid BakaSU driver version code in build metadata."; exit 1; }
+
+          mapfile -d '' MANAGER_APKS < <(find manager-artifact -type f -name '*-arm64-v8a-release.apk' -print0 | sort -z)
+          [ "${#MANAGER_APKS[@]}" -eq 1 ] \
+            || { echo "::error::Expected one arm64-v8a BakaSU manager APK, found ${#MANAGER_APKS[@]}."; exit 1; }
+          MANAGER_APK="${MANAGER_APKS[0]}"
+          MANAGER_VERSION_CODE=$(basename "$MANAGER_APK" | sed -nE 's/^.*_([0-9]+)-arm64-v8a-release\.apk$/\1/p')
+          [[ "${MANAGER_VERSION_CODE:-}" =~ ^[0-9]+$ ]] \
+            || { echo "::error::Could not determine BakaSU manager version code from $MANAGER_APK."; exit 1; }
+          [ "$MANAGER_VERSION_CODE" = "$KERNEL_VERSION_CODE" ] \
+            || { echo "::error::BakaSU manager version code $MANAGER_VERSION_CODE does not match kernel driver version $KERNEL_VERSION_CODE."; exit 1; }
+
+          name=$(basename "$MANAGER_APK")
+          cp -- "$MANAGER_APK" "dist/BakaSU-manager-${BAKASU_COMMIT:0:12}-${name}"
+          echo "Added the arm64-v8a manager APK for BakaSU commit $BAKASU_COMMIT"
+
       - name: Write release notes
         run: |
           source "$(ls dist/info-*.txt | head -1)"
@@ -1025,13 +1122,8 @@ jobs:
             b=$(basename "$z")
             dev=$(echo "$b" | sed -nE 's/^sdm845-([a-z0-9]+)-.*/\1/p')
             case "$dev" in
-              beryllium) m="POCO F1";;
-              dipper)    m="Mi 8";;
-              equuleus)  m="Mi 8 Pro";;
-              polaris)   m="Mi MIX 2S";;
-              perseus)   m="Mi MIX 3";;
-              ursa)      m="Mi 8 Explorer Edition";;
-              *)         m="$dev";;
+              dipper)    m="Xiaomi Mi 8";;
+              *)         echo "::error::Release contains unsupported device $dev (only dipper is supported)."; exit 1;;
             esac
             DEVROWS="${DEVROWS}| ${m} | \`${dev}\` | \`${b}\` |"$'\n'
           done
@@ -1043,6 +1135,8 @@ jobs:
           | Root | BakaSU |
           | ROM | LineageOS ${LINEAGE_VERSION} (Android ${ANDROID_VERSION}) and /e/OS based on it |
           | Kernel | Coconutat SDM845 \`${KERNEL_BRANCH}\` @ [\`${KERNEL_COMMIT}\`](https://github.com/${KERNEL_REPO}/commit/${KERNEL_COMMIT}) |
+          | BakaSU manager | [\`${BAKASU_COMMIT}\`](https://github.com/Baka-SU/BakaSU/commit/${BAKASU_COMMIT}) (version code \`${BAKASU_VERSION_CODE}\`; arm64-v8a APK attached) |
+          | BakaSU driver version code | \`${BAKASU_VERSION_CODE}\` (verified against the arm64-v8a manager APK) |
           | Kernel version | \`${KERNEL_RELEASE}\` |
           | SuSFS | \`${SUSFS_VERSION}\` (inline hook; v2.4.0 = JackA1ltman's 4.9 port, the tree ships v2.3.0) |
           | Extra features | Baseband Guard · NoMount · Droidspaces (with memory limits) · TCP BBR + fq (default) |
@@ -1056,8 +1150,7 @@ jobs:
           |---|---|---|
           ${DEVROWS}
 
-          Flash from TWRP / OrangeFox and install a BakaSU manager compatible with this kernel.
-          The manager is not attached to this release. **Back up your stock \`boot\` partition first.**
+          Flash from TWRP / OrangeFox and install the attached \`arm64-v8a\` BakaSU manager APK. **Back up your stock \`boot\` partition first.**
           NoMount is built into the kernel; BakaSU manager integration with its driver has not been verified.
           EOF
           sed -i 's/^          //' notes.md
@@ -1068,4 +1161,4 @@ jobs:
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
             --title "Xiaomi SDM845 LineageOS ${LINEAGE_VERSION} — BakaSU" \
             --notes-file notes.md --latest \
-            dist/*.zip dist/config-*.txt
+            dist/*.zip dist/config-*.txt dist/*.apk
