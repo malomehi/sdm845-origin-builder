@@ -6,7 +6,7 @@
 > [!IMPORTANT]
 > **This builder defaults to BakaSU. OriginSU `v4.3.0` is available as an alternative.**
 > OriginSU has been renamed and rebuilt as **[KazeSU](https://github.com/KazeSU/KazeSU)**, which targets modern (GKI 5.10+) kernels and **does not build on this Linux 4.9 kernel** (its SELinux code needs the 5.10+ layout). OriginSU `v4.3.0` remains available for this kernel (non-GKI hooks, SuSFS, built-in module mounting); it is frozen, but the builder is still maintained by hand for kernel updates and optimizations.
-> **4.9 is also the newest kernel LineageOS ships for SDM845.** Mainline Linux runs on some of these phones (POCO F1, Mi MIX 2S), but only for Linux distributions or bare AOSP test builds, not for LineageOS-based ROMs.
+> **4.9 is also the newest kernel LineageOS ships for SDM845.** This workflow currently targets only the Xiaomi Mi 8 (`dipper`), not other SDM845 phones such as the POCO F1 or Mi MIX 2S. Mainline Linux runs on some of those other phones only for Linux distributions or bare AOSP test builds, not for LineageOS-based ROMs.
 >
 > KazeSU builds for SDM845 ([sdm845-KazeSU-builder](https://github.com/1992Ade/sdm845-KazeSU-builder)) are **on hold** until KazeSU supports older kernels again. The matching OriginSU `v4.3.0` manager APK is available from the KazeSU repository: [tag `v4.3.0`, release "legacy-v4.3.0"](https://github.com/KazeSU/KazeSU/releases/tag/v4.3.0). BakaSU builds are published as GitHub Releases; OriginSU builds are available only as workflow-run artifacts.
 
@@ -14,9 +14,9 @@
 
 ## 📱 About This Repository
 
-This repository automates the compilation of a custom **Linux 4.9** kernel for **Xiaomi Snapdragon 845 (SDM845)** devices — Mi 8, POCO F1, Mi MIX 2S and their siblings. It is based on the LineageOS-derived kernel tree by **[Coconutat](https://github.com/Coconutat/android_kernel_xiaomi_sdm845_lineageos_Exp)**, which already ships **SuSFS** and its inline hooks (originally used with BakaSU).
+This repository automates the compilation of a custom **Linux 4.9** kernel for the **Xiaomi Mi 8 (`dipper`) only**. It uses the LineageOS-derived **[Coconutat SDM845 kernel tree](https://github.com/Coconutat/android_kernel_xiaomi_sdm845_lineageos_Exp)**, which includes configs for other SDM845 devices; this workflow does not build or claim support for them.
 
-The workflow builds the kernel with **BakaSU by default**, or **[OriginSU v4.3.0](https://github.com/KazeSU/KazeSU/releases/tag/v4.3.0)** when selected. Both build modes include **SuSFS** (v2.4.0 by default), **Baseband Guard**, **NoMount**, **Droidspaces**, **TCP BBR** and the [optimizations](#-optimizations) below, and produce a recovery-flashable `.zip` for the selected device. The current matrix builds **dipper (Xiaomi Mi 8) only**. BakaSU zips are published in a GitHub Release and attached to the Actions run; OriginSU builds are artifacts only.
+The workflow builds the kernel with **BakaSU by default**, or **[OriginSU v4.3.0](https://github.com/KazeSU/KazeSU/releases/tag/v4.3.0)** when selected. Both build modes include **SuSFS** (v2.4.0 by default), **Baseband Guard**, **NoMount**, **Droidspaces**, **TCP BBR** and the [optimizations](#-optimizations) below, and produce a recovery-flashable `.zip` for `dipper` only. BakaSU zips are published in a GitHub Release and attached to the Actions run; OriginSU builds are artifacts only.
 
 > [!WARNING]
 > **LineageOS-based ROMs only.** This is a LineageOS kernel. Kernels for LineageOS (and ROMs built on it, such as /e/OS) and kernels for other ROM families such as crDroid are **not interchangeable** on SDM845: one does not boot on the other. Check that your ROM uses the LineageOS `sdm845` kernel before flashing.
@@ -69,9 +69,9 @@ Not included on purpose: LTO (experimental on this 4.9 tree, and it can rename i
 
 ---
 
-## ✅ Supported Devices & ROMs
+## ✅ Current Build Target & ROMs
 
-One zip is built per device. **Flash only the zip whose codename matches your phone** (each zip refuses to install on any other device).
+The workflow builds one zip for **Xiaomi Mi 8 (`dipper`) only**. It refuses to install on other device codenames.
 
 | Device | Codename | Test status |
 |---|---|---|
@@ -87,7 +87,7 @@ The kernel comes from the LineageOS kernel tree, so it works with ROMs built on 
 | **LineageOS 22.2** (Android 15) | ✅ Built from the LineageOS source | [LineageOS wiki](https://wiki.lineageos.org/devices/dipper/) |
 | **/e/OS** (Android 15, community) | ✅ /e/OS is built on LineageOS 22 | [/e/OS docs](https://doc.e.foundation/devices/dipper/) |
 
-Other ROMs may work only if they are built on the LineageOS `sdm845` 4.9 kernel and the same vendor firmware, and they are not tested. ROMs built on another kernel tree, such as **crDroid**, are **not** compatible: LineageOS and crDroid kernels do not boot on each other's ROMs on SDM845. Stock MIUI is **not** supported.
+On `dipper`, other ROMs may work only if they are built on the LineageOS `sdm845` 4.9 kernel and the same vendor firmware; they are not tested. ROMs built on another kernel tree, such as **crDroid**, are **not** compatible: LineageOS and crDroid kernels do not boot on each other's ROMs on SDM845. Stock MIUI is **not** supported.
 
 > Make sure your device is on the vendor firmware LineageOS asks for (see the *"Update to a newer vendor firmware version"* section of the LineageOS wiki).
 
@@ -95,18 +95,18 @@ Other ROMs may work only if they are built on the LineageOS `sdm845` 4.9 kernel 
 
 ## 📦 Which zip should I download?
 
-Each build produces a zip for the selected device. The filename identifies the root solution:
+Each build produces one zip for `dipper`. The filename identifies the root solution:
 
 ```
 sdm845-<codename>-LOS<lineage>-BakaSU-susfs-<date>.zip
 sdm845-<codename>-LOS<lineage>-OriginSU-<version>-susfs-<date>.zip
 ```
 
-For example `sdm845-dipper-LOS22.2-BakaSU-susfs-20261115.zip` for the Mi 8. BakaSU zips and configs are available in both the GitHub Release and workflow run's **Artifacts** section. OriginSU zips and configs are available only from the workflow run's artifacts; its manager APK is not included. Only the **SuSFS** variant is built: the Coconutat tree has its KernelSU hooks written for SuSFS.
+For example `sdm845-dipper-LOS22.2-BakaSU-susfs-20261115.zip` for the Mi 8. BakaSU zips and configs are available in both the GitHub Release and workflow run's **Artifacts** section; the matching `arm64-v8a` BakaSU manager APK is attached to the GitHub Release. OriginSU zips and configs are available only from the workflow run's artifacts; its manager APK is not included. Only the **SuSFS** variant is built: the Coconutat tree has its KernelSU hooks written for SuSFS.
 
 ### Getting a BakaSU build
 
-Run **Build Xiaomi SDM845 Kernels with BakaSU or OriginSU** from the Actions tab with `root` set to `bakasu` (the default). Download the `sdm845-dipper-bakasu` artifact from the run, or the latest `bakasu-los<lineage>` GitHub Release, and extract the flashable zip and build config. Back up `boot`, then flash the zip in recovery or with `adb sideload`. Use the manager/version recommended by BakaSU; no manager is attached to the release. NoMount is built into the kernel, but BakaSU manager control of its driver has not been verified here.
+Run **Build Xiaomi SDM845 Kernels with BakaSU or OriginSU** from the Actions tab with `root` set to `bakasu` (the default). Download the `sdm845-dipper-bakasu` artifact for the kernel zip and build config, or get those plus the matching `arm64-v8a` BakaSU manager APK from the `bakasu-los<lineage>` GitHub Release. The APK is built from the same BakaSU commit as the kernel. Back up `boot`, then flash the zip in recovery or with `adb sideload`. NoMount is built into the kernel, but BakaSU manager control of its driver has not been verified here.
 
 ---
 
@@ -114,7 +114,7 @@ Run **Build Xiaomi SDM845 Kernels with BakaSU or OriginSU** from the Actions tab
 
 0. **Coming from Magisk, APatch, BakaSU or another KernelSU?** Read [this warning](#️-coming-from-another-root-solution) first.
 1. Back up your stock `boot` partition (from TWRP/OrangeFox, or keep the `boot.img` from your LineageOS / /e/OS zip).
-2. Download the `sdm845-dipper-originsu` artifact from the workflow run and extract the zip matching your device codename.
+2. Download the `sdm845-dipper-originsu` artifact from the workflow run and extract the Mi 8 (`dipper`) zip.
 3. Reboot to recovery and flash it, or use `adb sideload <file>.zip`.
 4. Reboot to system.
 5. Install the **OriginSU manager** APK matching the selected OriginSU tag. For the default `v4.3.0` build, get `OriginSU_v4.3.0_…-arm64-v8a-release.apk` from the [KazeSU legacy release](https://github.com/KazeSU/KazeSU/releases/tag/v4.3.0). Do **not** install the KazeSU v1.x manager with this kernel.
@@ -181,8 +181,8 @@ check  ──►  build (dipper)  ──►  release (BakaSU only)
    - Downloads **AOSP Clang r547379**, the toolchain recommended by the kernel's author.
    - Installs the selected root solution: BakaSU by default, or OriginSU at the exact selected tag with its 4.9 compatibility fixes.
    - Applies the selected SuSFS version and enables the shared features (Baseband Guard, NoMount, Droidspaces, TCP BBR + `fq` as default) and [optimizations](#-optimizations) for either root solution. The NoMount API compatibility check applies to OriginSU.
-   - Packages like Coconutat: osm0sis AnyKernel3 + the tree's own `tools/AnyKernel3_sh/anykernel.sh`, with both `Image.gz` and `Image.gz-dtb`. AnyKernel3 flashes `Image.gz` and **keeps the DTB of your ROM's `boot.img`**. Each zip installs on its own device only.
-3. **release** (BakaSU only) — publishes/replaces `bakasu-los<lineage>` with the BakaSU zip and config. OriginSU builds remain downloadable from the Actions run artifacts.
+   - Packages like Coconutat: osm0sis AnyKernel3 + the tree's own `tools/AnyKernel3_sh/anykernel.sh`, with both `Image.gz` and `Image.gz-dtb`. AnyKernel3 flashes `Image.gz` and **keeps the DTB of your ROM's `boot.img`**. The zip is guarded to install on the Mi 8 (`dipper`) only.
+3. **release** (BakaSU only) — finds the successful BakaSU manager workflow run for the exact BakaSU commit used in the kernel, verifies the arm64-v8a APK version code matches the kernel driver's version code, then publishes/replaces `bakasu-los<lineage>` with the kernel zip, config and matching manager APK. OriginSU builds remain downloadable from the Actions run artifacts.
 
 ### Schedule
 
@@ -200,7 +200,9 @@ A manual BakaSU run with `publish` enabled for a LineageOS version that is alrea
 
 1. Fork the repository.
 2. Go to **Settings → Actions → General** and make sure Actions are enabled. **Read and write** workflow permissions are needed to publish BakaSU releases.
-3. Run **Build Xiaomi SDM845 Kernels with BakaSU or OriginSU** manually. BakaSU builds publish a release by default; OriginSU builds produce run artifacts only.
+3. Create a token that can read workflow artifacts from `Baka-SU/BakaSU`. If Baka-SU is not selectable for a fine-grained token, try a classic token with only the `public_repo` scope (leave the broader `repo` scope unchecked). The workflow tests artifact download access before starting the kernel build; if GitHub rejects that scope, don’t broaden it to `repo` unless you accept its wider permissions.
+4. In your fork, go to **Settings → Secrets and variables → Actions**, create the repository secret `BAKASU_ACTIONS_TOKEN`, and set its value to that token. The release workflow needs it to download the matching manager artifact.
+5. Run **Build Xiaomi SDM845 Kernels with BakaSU or OriginSU** manually. BakaSU builds publish a release by default; OriginSU builds produce run artifacts only.
 
 ### Manual run options
 
